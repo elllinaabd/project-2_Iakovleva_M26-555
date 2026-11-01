@@ -1,9 +1,9 @@
-VALID_TYPES = {"int", "str", "bool"}
+VALID_TYPES = {"int": int, "str": str, "bool": bool}
 ID_COLUMN = "ID"
 
 
 def _parse_columns(columns):
-    
+
     parsed = {ID_COLUMN: "int"}
 
     for column in columns:
@@ -65,3 +65,83 @@ def list_tables(metadata):
 
     for table_name in metadata:
         print(f"- {table_name}")
+
+def table_exists(metadata, table_name):
+    """Проверяет, что таблица есть"""
+    if table_name not in metadata:
+        print(f'Ошибка: Таблица "{table_name}" не существует.')
+        return False
+    return True
+
+
+def get_columns(metadata, table_name):
+    """Возвращает схему таблицы"""
+    return metadata[table_name]["columns"]
+
+
+def _type_matches(value, col_type):
+    return type(value) is VALID_TYPES[col_type]
+
+
+def validate_clause(columns, clause):
+    """Проверяет, что столбцы из условия есть в таблице и типы значений верны."""
+    for column, value in clause.items():
+        if column not in columns:
+            print(f'Ошибка: Столбца "{column}" нет в таблице.')
+            return False
+        if not _type_matches(value, columns[column]):
+            print(f"Некорректное значение: {value!r}. Попробуйте снова.")
+            return False
+    return True
+
+
+# ---------- CRUD ----------
+
+
+def insert(metadata, table_name, values, table_data):
+    """Добавляет запись"""
+    if not table_exists(metadata, table_name):
+        return None
+
+    columns = get_columns(metadata, table_name)
+    user_columns = [name for name in columns if name != ID_COLUMN]
+
+    if len(values) != len(user_columns):
+        print(
+            f"Ошибка: ожидается значений: {len(user_columns)}, получено: {len(values)}."
+        )
+        return None
+
+    record = dict(zip(user_columns, values))
+    if not validate_clause(columns, record):
+        return None
+
+    new_id = max((row[ID_COLUMN] for row in table_data), default=0) + 1
+    table_data.append({ID_COLUMN: new_id, **record})
+
+    print(f'Запись с ID={new_id} успешно добавлена в таблицу "{table_name}".')
+    return table_data
+
+
+def _matches(row, where_clause):
+    return all(row.get(column) == value for column, value in where_clause.items())
+
+
+def select(table_data, where_clause=None):
+    """Возвращает все записи или только подходящие под where_clause."""
+    if not where_clause:
+        return table_data
+    return [row for row in table_data if _matches(row, where_clause)]
+
+
+def update(table_data, set_clause, where_clause):
+    """Обновляет поля из set_clause у записей, подходящих под where_clause."""
+    for row in table_data:
+        if _matches(row, where_clause):
+            row.update(set_clause)
+    return table_data
+
+
+def delete(table_data, where_clause):
+    """Удаляет записи, подходящие под where_clause."""
+    return [row for row in table_data if not _matches(row, where_clause)]
