@@ -221,3 +221,4 @@ __marimo__/
 
 db_meta.json
 data/
+*.cast

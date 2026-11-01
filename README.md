@@ -32,3 +32,5 @@ https://asciinema.org/a/bGAC2vtrjShq2ZCU
 | `update <таблица> set <столбец> = <значение> where <столбец> = <значение>` | обновить записи |
 | `delete from <таблица> where <столбец> = <значение>` | удалить записи |
 | `info <таблица>` | информация о таблице |
+
+https://asciinema.org/a/fyLhYGaCAwrOR93p
