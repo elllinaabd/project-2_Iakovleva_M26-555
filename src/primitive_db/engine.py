@@ -17,6 +17,7 @@ from primitive_db.core import (
     update,
     validate_clause,
 )
+from primitive_db.decorators import handle_db_errors
 from primitive_db.parser import parse_set, parse_values, parse_where
 from primitive_db.utils import (
     delete_table_data,
@@ -88,7 +89,7 @@ def _ids_str(records):
 
 # ---------- Обработчики CRUD-команд ----------
 
-
+@handle_db_errors
 def handle_insert(metadata, match):
     table_name, raw_values = match.groups()
     values = parse_values(raw_values)
@@ -99,6 +100,7 @@ def handle_insert(metadata, match):
         save_table_data(table_name, result)
 
 
+@handle_db_errors
 def handle_select(metadata, match):
     table_name, raw_where = match.groups()
     if not table_exists(metadata, table_name):
@@ -106,13 +108,18 @@ def handle_select(metadata, match):
 
     columns = get_columns(metadata, table_name)
     where_clause = parse_where(raw_where) if raw_where else None
-    if where_clause and not validate_clause(columns, where_clause):
-        return
+    if where_clause:
+        validate_clause(columns, where_clause)
 
     table_data = load_table_data(table_name)
-    print_records(columns, select(table_data, where_clause))
+    records = select(table_data, where_clause)
+    if records is None:
+        return
+
+    print_records(columns, records)
 
 
+@handle_db_errors
 def handle_update(metadata, match):
     table_name, raw_set, raw_where = match.groups()
     if not table_exists(metadata, table_name):
@@ -125,13 +132,14 @@ def handle_update(metadata, match):
     if ID_COLUMN in set_clause:
         print("Ошибка: столбец ID изменять нельзя.")
         return
-    if not (
-        validate_clause(columns, set_clause) and validate_clause(columns, where_clause)
-    ):
-        return
+    
+    validate_clause(columns, set_clause)
+    validate_clause(columns, where_clause)
 
     table_data = load_table_data(table_name)
     found = select(table_data, where_clause)
+    if found is None:
+        return
     if not found:
         print("Записи по условию не найдены.")
         return
@@ -141,6 +149,7 @@ def handle_update(metadata, match):
     print(f'Запись с ID={ids} в таблице "{table_name}" успешно обновлена.')
 
 
+@handle_db_errors
 def handle_delete(metadata, match):
     table_name, raw_where = match.groups()
     if not table_exists(metadata, table_name):
@@ -148,19 +157,25 @@ def handle_delete(metadata, match):
 
     columns = get_columns(metadata, table_name)
     where_clause = parse_where(raw_where)
-    if not validate_clause(columns, where_clause):
-        return
+    validate_clause(columns, where_clause)
 
     table_data = load_table_data(table_name)
     found = select(table_data, where_clause)
+    if found is None:
+        return
     if not found:
         print("Записи по условию не найдены.")
         return
 
-    save_table_data(table_name, delete(table_data, where_clause))
+    result = delete(table_data, where_clause)
+    if result is None:
+        return
+
+    save_table_data(table_name, result)
     print(f'Запись с ID={_ids_str(found)} успешно удалена из таблицы "{table_name}".')
 
 
+@handle_db_errors
 def handle_info(metadata, table_name):
     if not table_exists(metadata, table_name):
         return
