@@ -1,16 +1,12 @@
 import json
-from copy import deepcopy
 
+from primitive_db.constants import ID_COLUMN, VALID_TYPES
 from primitive_db.decorators import (
     confirm_action,
     create_cacher,
     handle_db_errors,
     log_time,
 )
-
-VALID_TYPES = {"int": int, "str": str, "bool": bool}
-ID_COLUMN = "ID"
-
 
 _cache_select = create_cacher()
 
@@ -73,6 +69,7 @@ def drop_table(metadata, table_name):
 
 
 def list_tables(metadata):
+    """Выводит список таблиц."""
     if not metadata:
         print("Таблиц пока нет.")
         return
@@ -94,6 +91,7 @@ def get_columns(metadata, table_name):
 
 
 def _type_matches(value, col_type):
+    """Проверяет точное соответствие значения типу столбца."""
     return type(value) is VALID_TYPES[col_type]
 
 
@@ -141,6 +139,7 @@ def insert(metadata, table_name, values, table_data):
 
 
 def _matches(row, where_clause):
+    """Проверяет соответствие записи условию выборки."""
     return all(row.get(column) == value for column, value in where_clause.items())
 
 @handle_db_errors
@@ -163,10 +162,10 @@ def select(table_data, where_clause=None):
                 if _matches(row, where_clause)
             ]
 
-        return deepcopy(records)
+        return [row.copy() for row in records]
 
     cached_records = _cache_select(key, get_records)
-    return deepcopy(cached_records)
+    return [row.copy() for row in cached_records]
 
 
 def update(table_data, set_clause, where_clause):

@@ -1,11 +1,10 @@
-import re
 import shlex
 
 import prompt
 from prettytable import PrettyTable
 
+from primitive_db.constants import ID_COLUMN, META_FILE, QUOTES
 from primitive_db.core import (
-    ID_COLUMN,
     create_table,
     delete,
     drop_table,
@@ -27,17 +26,105 @@ from primitive_db.utils import (
     save_table_data,
 )
 
-META_FILE = "db_meta.json"
 
-# Шаблоны CRUD-команд. Ключевые слова — без учёта регистра.
-INSERT_RE = re.compile(r"insert\s+into\s+(\w+)\s+values\s*\((.*)\)", re.IGNORECASE)
-SELECT_RE = re.compile(r"select\s+from\s+(\w+)(?:\s+where\s+(.+))?", re.IGNORECASE)
-UPDATE_RE = re.compile(r"update\s+(\w+)\s+set\s+(.+?)\s+where\s+(.+)", re.IGNORECASE)
-DELETE_RE = re.compile(r"delete\s+from\s+(\w+)\s+where\s+(.+)", re.IGNORECASE)
+def _split_keyword(text, keyword):
+    """Разделяет текст по отдельному ключевому слову вне кавычек."""
+    quote = None
+    keyword_length = len(keyword)
 
+    for index, char in enumerate(text):
+        if quote:
+            if char == quote:
+                quote = None
+            continue
+
+        if char in QUOTES:
+            quote = char
+            continue
+
+        if text[index:index + keyword_length].lower() != keyword:
+            continue
+
+        end = index + keyword_length
+        left_boundary = index == 0 or text[index - 1].isspace()
+        right_boundary = end == len(text) or text[end].isspace()
+
+        if left_boundary and right_boundary:
+            return text[:index].strip(), text[end:].strip()
+
+    raise ValueError(f'ожидается ключевое слово "{keyword}".')
+
+
+def parse_crud_command(command, user_input):
+    """Разбирает структуру CRUD-команды и возвращает её аргументы."""
+    parts = user_input.split(maxsplit=1)
+    if len(parts) != 2:
+        raise ValueError("не указаны аргументы команды.")
+
+    body = parts[1].strip()
+
+    if command == "insert":
+        parts = body.split(maxsplit=2)
+        if len(parts) != 3 or parts[0].lower() != "into":
+            raise ValueError(
+                "используйте: insert into <таблица> values (<значения>)."
+            )
+
+        _, table_name, values_part = parts
+        keyword, separator, raw_values = values_part.partition("(")
+
+        if (
+            keyword.strip().lower() != "values"
+            or not separator
+            or not raw_values.endswith(")")
+        ):
+            raise ValueError("значения должны быть в скобках после values.")
+
+        result = (table_name, raw_values[:-1].strip())
+
+    elif command in ("select", "delete"):
+        parts = body.split(maxsplit=2)
+        if len(parts) < 2 or parts[0].lower() != "from":
+            raise ValueError(f'после "{command}" ожидается from и имя таблицы.')
+
+        table_name = parts[1]
+        raw_where = None
+
+        if len(parts) == 3:
+            prefix, raw_where = _split_keyword(parts[2], "where")
+            if prefix or not raw_where:
+                raise ValueError("некорректное условие where.")
+
+        if command == "delete" and raw_where is None:
+            raise ValueError("для удаления записей укажите условие where.")
+
+        result = (table_name, raw_where)
+
+    elif command == "update":
+        parts = body.split(maxsplit=2)
+        if len(parts) != 3 or parts[1].lower() != "set":
+            raise ValueError(
+                "используйте: update <таблица> set <изменения> where <условие>."
+            )
+
+        table_name = parts[0]
+        raw_set, raw_where = _split_keyword(parts[2], "where")
+
+        if not raw_set or not raw_where:
+            raise ValueError("укажите изменения после set и условие после where.")
+
+        result = (table_name, raw_set, raw_where)
+
+    else:
+        raise ValueError(f'неизвестная CRUD-команда "{command}".')
+
+    if not table_name.isidentifier():
+        raise ValueError(f'некорректное имя таблицы "{table_name}".')
+
+    return result
 
 def print_help():
-    """Prints the help message for the current mode."""
+    """Выводит подсказки для текущего этапа"""
 
     print("\n***Операции с данными***")
     print("Функции:")
@@ -84,14 +171,16 @@ def print_records(columns, records):
 
 
 def _ids_str(records):
+    """Формирует строку с идентификаторами записей."""
     return ", ".join(str(row[ID_COLUMN]) for row in records)
 
 
 # ---------- Обработчики CRUD-команд ----------
 
 @handle_db_errors
-def handle_insert(metadata, match):
-    table_name, raw_values = match.groups()
+def handle_insert(metadata, arguments):
+    """Обрабатывает команду добавления записи."""
+    table_name, raw_values = arguments
     values = parse_values(raw_values)
 
     table_data = load_table_data(table_name)
@@ -101,8 +190,9 @@ def handle_insert(metadata, match):
 
 
 @handle_db_errors
-def handle_select(metadata, match):
-    table_name, raw_where = match.groups()
+def handle_select(metadata, arguments):
+    """Обрабатывает команду выборки записей."""
+    table_name, raw_where = arguments
     if not table_exists(metadata, table_name):
         return
 
@@ -120,8 +210,9 @@ def handle_select(metadata, match):
 
 
 @handle_db_errors
-def handle_update(metadata, match):
-    table_name, raw_set, raw_where = match.groups()
+def handle_update(metadata, arguments):
+    """Обрабатывает команду обновления записей."""
+    table_name, raw_set, raw_where = arguments
     if not table_exists(metadata, table_name):
         return
 
@@ -150,8 +241,9 @@ def handle_update(metadata, match):
 
 
 @handle_db_errors
-def handle_delete(metadata, match):
-    table_name, raw_where = match.groups()
+def handle_delete(metadata, arguments):
+    """Обрабатывает команду удаления записей."""
+    table_name, raw_where = arguments
     if not table_exists(metadata, table_name):
         return
 
@@ -177,6 +269,7 @@ def handle_delete(metadata, match):
 
 @handle_db_errors
 def handle_info(metadata, table_name):
+    """Выводит схему таблицы и количество записей."""
     if not table_exists(metadata, table_name):
         return
 
@@ -188,10 +281,10 @@ def handle_info(metadata, table_name):
 
 
 CRUD_COMMANDS = {
-    "insert": (INSERT_RE, handle_insert),
-    "select": (SELECT_RE, handle_select),
-    "update": (UPDATE_RE, handle_update),
-    "delete": (DELETE_RE, handle_delete),
+    "insert": handle_insert,
+    "select": handle_select,
+    "update": handle_update,
+    "delete": handle_delete,
 }
 
 
@@ -269,14 +362,11 @@ def run():
 
         try:
             if command in CRUD_COMMANDS:
-                pattern, handler = CRUD_COMMANDS[command]
-                match = pattern.fullmatch(user_input)
-                if match is None:
-                    print(f"Некорректное значение: {user_input}. Попробуйте снова.")
-                    continue
-                handler(metadata, match)
+                arguments = parse_crud_command(command, user_input)
+                handler = CRUD_COMMANDS[command]
+                handler(metadata, arguments)
             elif not handle_simple_command(metadata, user_input):
                 break
         except ValueError as error:
-            # Бросают парсер условий и shlex (например, незакрытая кавычка).
+            # Ошибки структуры команды, значений или незакрытых кавычек.
             print(f"Некорректное значение: {error}. Попробуйте снова.")

@@ -1,13 +1,18 @@
-"""Декораторы для операций базы данных"""
+"""Декораторы для операций базы данных."""
 
 import time
-from functools import wraps
+
+
+def _preserve_metadata(wrapper, func):
+    """Сохраняет имя и описание обёрнутой функции."""
+    wrapper.__name__ = func.__name__
+    wrapper.__doc__ = func.__doc__
+    return wrapper
 
 
 def handle_db_errors(func):
     """Перехватывает ожидаемые ошибки при выполнении операции."""
 
-    @wraps(func)
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
@@ -23,14 +28,13 @@ def handle_db_errors(func):
 
         return None
 
-    return wrapper
+    return _preserve_metadata(wrapper, func)
 
 
 def confirm_action(action_name):
-    """Запрашивает подтверждение перед выполнением операции"""
+    """Запрашивает подтверждение перед выполнением операции."""
 
     def decorator(func):
-        @wraps(func)
         def wrapper(*args, **kwargs):
             answer = input(
                 f'Вы уверены, что хотите выполнить "{action_name}"? [y/n]: '
@@ -42,7 +46,7 @@ def confirm_action(action_name):
 
             return func(*args, **kwargs)
 
-        return wrapper
+        return _preserve_metadata(wrapper, func)
 
     return decorator
 
@@ -50,7 +54,6 @@ def confirm_action(action_name):
 def log_time(func):
     """Выводит время выполнения функции."""
 
-    @wraps(func)
     def wrapper(*args, **kwargs):
         start = time.monotonic()
         result = func(*args, **kwargs)
@@ -62,7 +65,7 @@ def log_time(func):
         )
         return result
 
-    return wrapper
+    return _preserve_metadata(wrapper, func)
 
 
 def create_cacher():
@@ -70,6 +73,7 @@ def create_cacher():
     cache = {}
 
     def cache_result(key, value_func):
+        """Возвращает результат из кэша или вычисляет и сохраняет его."""
         if key not in cache:
             cache[key] = value_func()
 

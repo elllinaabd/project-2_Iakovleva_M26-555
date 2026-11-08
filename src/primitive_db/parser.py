@@ -1,6 +1,6 @@
 """Разбор значений и условий вида: age = 28, name = "Sergei"."""
 
-QUOTES = ('"', "'")
+from primitive_db.constants import QUOTES
 
 
 def _split_outside_quotes(text, separator=","):
